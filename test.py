@@ -3,8 +3,11 @@ Platformer Game
 
 python -m arcade.examples.platform_tutorial.02_draw_sprites
 """
+from typing import Union
+
 import arcade
 import arcade.gui
+from arcade.gui import UIInputText, UIMessageBox, UIManager
 from yoctopuce.yocto_api import YRefParam, YAPI
 from yoctopuce.yocto_rangefinder import YRangeFinder
 
@@ -12,12 +15,17 @@ from yoctopuce.yocto_rangefinder import YRangeFinder
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 WINDOW_TITLE = "Yoctopuce Sag meter"
+DEFAULT_FONT = ("Kenney Future", "arial")
 
 
 class SuspStatus:
-    def __init__(self, hwid, travel):
-        self.hwid = hwid
-        self.travel = int(travel)
+    travel: int
+    max_val: int
+    mm_sag: int
+    sag: int
+
+    def __init__(self, travel: int):
+        self.travel = travel
         self.max_val = 0
         self.sag = 0
         self.mm_sag = 0
@@ -28,7 +36,7 @@ class SuspStatus:
         self.sag = 0
         self.mm_sag = 0
 
-    def update_value(self, new_val):
+    def update_value(self, new_val: int):
         # Update max value in case the app was started with the suspension compressed
         if new_val > self.max_val:
             self.max_val = new_val
@@ -41,29 +49,35 @@ class SuspStatus:
             self.mm_sag = mm_sag
             # print("update value :"+self.get_sag_text())
 
-    def get_sag_text(self):
+    def get_sag_text(self) -> str:
         return "SAG = %d%% (%dmm)" % (self.sag, self.mm_sag)
 
 
-class Status:
-    def __init__(self, fr_hwid, fr_travel, rd_hwid, rd_travel):
-        self.front = SuspStatus(fr_hwid, fr_travel)
-        self.rear = SuspStatus(rd_hwid, rd_travel)
-
-    def reset(self):
-        self.front.reset()
-        self.rear.reset()
-
-
 class ApplicationConfig:
+    url: str
+    error: str
+    all_rf: list[str]
+    front_selection: str
+    rear_selection: str
+    front_rf: Union[YRangeFinder, None]
+    rear_rf: Union[YRangeFinder, None]
+    front_travel: int
+    rear_travel: int
+    front: SuspStatus
+    rear: SuspStatus
+
     def __init__(self):
         self.url = "usb"
-        self.error = None
+        self.error = ""
         self.all_rf = []
+        self.front_selection = "None"
+        self.rear_selection = "None"
         self.front_rf = None
-        self.rear_rf = None
+        self.rear_fr = None
+        self.front_travel = 160
+        self.rear_travel = 75
 
-    def setup(self):
+    def setup(self) -> None:
         errmsg = YRefParam()
         if YAPI.RegisterHub(self.url, errmsg) != YAPI.SUCCESS:
             print("Unable to register hub %s: %s" % (self.url, errmsg.value))
@@ -73,36 +87,61 @@ class ApplicationConfig:
                 print("Unable to register hub %s: %s" % (self.url, errmsg.value))
                 self.error = errmsg.value
                 return
-
-        rf = YRangeFinder.FirstRangeFinder()
+        rf: YRangeFinder = YRangeFinder.FirstRangeFinder()
         while rf is not None:
             self.all_rf.append(rf.get_hardwareId())
             name = rf.get_logicalName()
             if name == "front":
-                self.front_rf = rf.get_hardwareId()
+                self.front_selection = rf.get_hardwareId()
             elif name == "rear":
-                self.rear_rf = rf.get_hardwareId()
+                self.rear_selection = rf.get_hardwareId()
             rf = rf.nextRangeFinder()
 
-    def check_config(self):
-        if self.error is not None:
+    def check_config(self) -> str:
+        if self.error != "":
             return self.error
         if len(self.all_rf) == 0:
             return "No Yocto-RangeFinder detected on " + self.url
+        return ""
 
-        return None
+    def check_parameters(self, fr_hwid: str, fr_travel: int, rd_hwid: str, rd_travel: int) -> str:
+        try:
+            self.front_travel = int(fr_travel)
+        except ValueError:
+            return "Invalid front travel"
+        try:
+            self.rear_travel = int(rd_travel)
+        except ValueError:
+            return "Invalid rear travel"
+
+        if fr_hwid == "None" and rd_hwid == "None":
+            return "You need to select at least one Yocto-RangeFinder device"
+        self.front = SuspStatus(self.front_travel)
+        self.rear = SuspStatus(self.rear_travel)
+        if fr_hwid != "None":
+            self.front_rf = YRangeFinder.FindRangeFinder(fr_hwid)
+            self.front_rf.set_rangeFinderMode(YRangeFinder.RANGEFINDERMODE_HIGH_ACCURACY)
+            self.front_rf.set_userData(self.front)
+            self.front_rf.registerValueCallback(valueCallback)
+
+        if rd_hwid != "None":
+            self.rear_rf = YRangeFinder.FindRangeFinder(rd_hwid)
+            self.rear_rf.set_rangeFinderMode(YRangeFinder.RANGEFINDERMODE_HIGH_ACCURACY)
+            self.rear_rf.set_userData(self.rear)
+            self.rear_rf.registerValueCallback(valueCallback)
+        return ""
 
 
-class GameView(arcade.Window):
+class AppView(arcade.View):
     """
     Main application class.
     """
+    param: ApplicationConfig
 
-    def __init__(self, status):
+    def __init__(self, param: ApplicationConfig):
         # Call the parent class and set up the window
-        super().__init__(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
-
-        # Variable to hold our texture for our player
+        super().__init__()
+        # bike texture
         self.bike_texture = None
 
         # Separate variable that holds the player sprite
@@ -114,14 +153,13 @@ class GameView(arcade.Window):
         self.fixed_spriteList = None
 
         self.camera = None
-        self.status = status
+        self.param = param
 
     def setup(self):
         """Set up the game here. Call this function to restart the game."""
         # Variable to hold our texture for our player
-        self.bike_texture = arcade.load_texture(
-            "lane.png"
-        )
+        self.bike_texture = arcade.load_texture("lane.png")
+        self.camera = arcade.Camera2D()
 
         # Separate variable that holds the player sprite
         self.bike_sprite = arcade.Sprite(self.bike_texture)
@@ -131,11 +169,9 @@ class GameView(arcade.Window):
 
         self.fixed_spriteList = arcade.SpriteList()
         self.fixed_spriteList.append(self.bike_sprite)
-        self.camera = arcade.Camera2D()
         self.background_color = arcade.csscolor.GREY
-        self.status.reset()
-        self.front_sag_text = arcade.Text(self.status.front.get_sag_text(), x=WINDOW_WIDTH - 200, y=5)
-        self.rear_sag_text = arcade.Text(self.status.rear.get_sag_text(), x=0, y=5)
+        self.front_sag_text = arcade.Text(self.param.front.get_sag_text(), x=WINDOW_WIDTH - 200, y=5)
+        self.rear_sag_text = arcade.Text(self.param.rear.get_sag_text(), x=0, y=5)
 
     def on_draw(self):
         """Render the screen."""
@@ -152,7 +188,8 @@ class GameView(arcade.Window):
 
     def on_update(self, delta_time):
         YAPI.HandleEvents()
-        self.front_sag_text.text = self.status.front.get_sag_text()
+        self.front_sag_text.text = self.param.front.get_sag_text()
+        self.rear_sag_text.text = self.param.rear.get_sag_text()
 
     def on_key_press(self, key, modifiers):
         """Called whenever a key is pressed."""
@@ -172,54 +209,78 @@ def valueCallback(rf, value):
     p.update_value(int(value))
 
 
-def start_yoctopuce_lib(config):
-    window = GameView(status)
-    window.setup()
-    arcade.run()
+class ConfigurationView(arcade.View):
+    """ Configuration application class."""
 
+    config: ApplicationConfig
+    manager: arcade.gui.UIManager
 
-class MainView(arcade.View):
-    """ Main application class."""
-
-    def __init__(self, config):
+    def __init__(self, config: ApplicationConfig):
         super().__init__()
         self.config = config
         self.manager = arcade.gui.UIManager()
-        widget_layout = arcade.gui.UIBoxLayout(align="center", space_between=10)
+        widget_layout = arcade.gui.UIBoxLayout(align="center", font_name=DEFAULT_FONT, space_between=10)
 
-        title_label = arcade.gui.UILabel(text="Yoctopuce SAG meter", align="center", font_size=20, multiline=False)
-        title_label_space = arcade.gui.UISpace(height=30, color=arcade.color.DARK_BLUE_GRAY)
+        title_label = arcade.gui.UILabel(text="Yoctopuce SAG meter", align="center", font_size=32, multiline=False)
         widget_layout.add(title_label)
+        title_label_space = arcade.gui.UISpace(height=30, color=arcade.color.GRAY)
         widget_layout.add(title_label_space)
-
         error = config.check_config()
-        if error is not None:
-            error_label = arcade.gui.UILabel(text="Error: " + error, align="center", font_size=15,
-                                             multiline=False)
+        if error != '':
+            error_label = arcade.gui.UILabel(text="Error: " + error, align="center", font_size=15, multiline=False)
             widget_layout.add(error_label)
             widget_layout.add(title_label_space)
-
             exit_button = arcade.gui.UIFlatButton(text="Exit", width=150)
+
             @exit_button.event("on_click")
             def on_click_exit_button(event):
                 arcade.exit()
+
             widget_layout.add(exit_button)
         else:
-            # todo continue next
-            continue_button = arcade.gui.UIFlatButton(text="Continue", width=150)
-            widget_layout.add(continue_button)
+            self.grid = arcade.gui.UIGridLayout(column_count=3, row_count=3, horizontal_spacing=20, vertical_spacing=20)
+            # first row
+            self.grid.add(arcade.gui.UILabel(text="Front", align="center", font_size=20, multiline=False), column=1, row=0)
+            self.grid.add(arcade.gui.UILabel(text="Rear", align="center", font_size=20, multiline=False), column=2, row=0)
+            # second row
+            self.grid.add(arcade.gui.UILabel(text="Travel", align="right", font_size=20, multiline=False), column=0, row=1)
+            self.fr_travel_input = UIInputText(width=400, height=40, border_color=arcade.uicolor.GRAY_CONCRETE, text="%d" % self.config.front_travel, font_name=DEFAULT_FONT, font_size=24, border_width=2)
+            self.grid.add(self.fr_travel_input, column=1, row=1)
+            self.rd_travel_input = UIInputText(width=400, height=40, border_color=arcade.uicolor.GRAY_CONCRETE, text="%d" % self.config.rear_travel, font_name=DEFAULT_FONT, font_size=24, border_width=2)
+            self.grid.add(self.rd_travel_input, column=2, row=1)
+            # third row
+            self.grid.add(arcade.gui.UILabel(text="Sensor", align="right", font_size=20, multiline=False), column=0, row=2)
+            avail = ["None"] + self.config.all_rf
+            self.fr_drop = arcade.gui.UIDropdown(options=avail, default=self.config.front_selection, height=40, width=400)
+            self.grid.add(self.fr_drop, column=1, row=2)
+            self.rd_drop = arcade.gui.UIDropdown(options=avail, default=self.config.rear_selection, height=40, width=400)
+            self.grid.add(self.rd_drop, column=2, row=2)
 
+            widget_layout.add(self.grid)
+            continue_button = arcade.gui.UIFlatButton(text="Continue", width=150)
+
+            @continue_button.event("on_click")
+            def on_click_continue_button(event):
+                # check parameters
+                res = self.config.check_parameters(self.fr_drop.value, self.fr_travel_input.text, self.rd_drop.value, self.rd_travel_input.text)
+                if res == "":
+                    main_view = AppView(self.config)
+                    main_view.setup()
+                    self.window.show_view(main_view)
+                    return
+                else:
+                    self.manager.add(
+                        UIMessageBox(width=300, height=200, title="Invalid parameters", buttons=("Ok",), message_text=res, ),
+                        layer=UIManager.OVERLAY_LAYER,
+                    )
+
+            widget_layout.add(continue_button)
+        # center main view
         self.anchor = self.manager.add(arcade.gui.UIAnchorLayout())
-        self.anchor.add(
-            anchor_x="center_x",
-            anchor_y="center_y",
-            child=widget_layout)
-        version_label = arcade.gui.UILabel(text="ylib : " + YAPI.GetAPIVersion(), align="center", font_size=12,
-                                           multiline=False)
-        self.anchor.add(
-            anchor_x="right",
-            anchor_y="bottom",
-            child=version_label)
+        self.anchor.add(anchor_x="center_x", anchor_y="center_y", child=widget_layout)
+        # add version on the bottom right
+        version_label = arcade.gui.UILabel(text="ylib : " + YAPI.GetAPIVersion(), align="center", font_size=12, multiline=False)
+        self.anchor.add(anchor_x="right", anchor_y="bottom", child=version_label)
 
     def on_show_view(self):
         """ This is run once when we switch to this view """
@@ -240,11 +301,11 @@ class MainView(arcade.View):
 
 
 def main():
-    config = ApplicationConfig()
+    config: ApplicationConfig = ApplicationConfig()
     config.setup()
 
     window = arcade.Window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, resizable=True)
-    main_view = MainView(config)
+    main_view = ConfigurationView(config)
     window.show_view(main_view)
     arcade.run()
 
