@@ -16,6 +16,7 @@ WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 WINDOW_TITLE = "Yoctopuce Sag meter"
 DEFAULT_FONT = ("Kenney Future", "arial")
+WINDOW_BG = arcade.csscolor.GREY
 
 
 class SuspStatus:
@@ -50,7 +51,10 @@ class SuspStatus:
             # print("update value :"+self.get_sag_text())
 
     def get_sag_text(self) -> str:
-        return "SAG = %d%% (%dmm)" % (self.sag, self.mm_sag)
+        return "SAG = %d%%\n(%dmm)" % (self.sag, self.mm_sag)
+
+    def get_travel_text(self):
+        return "Travel = %dmm" % self.travel
 
 
 class ApplicationConfig:
@@ -73,9 +77,11 @@ class ApplicationConfig:
         self.front_selection = "None"
         self.rear_selection = "None"
         self.front_rf = None
-        self.rear_fr = None
+        self.rear_rf = None
         self.front_travel = 160
         self.rear_travel = 75
+        self.front = SuspStatus(self.front_travel)
+        self.rear = SuspStatus(self.rear_travel)
 
     def setup(self) -> None:
         errmsg = YRefParam()
@@ -104,7 +110,7 @@ class ApplicationConfig:
             return "No Yocto-RangeFinder detected on " + self.url
         return ""
 
-    def check_parameters(self, fr_hwid: str, fr_travel: int, rd_hwid: str, rd_travel: int) -> str:
+    def check_parameters(self, fr_hwid: Union[str | None], fr_travel: int, rd_hwid: Union[str | None], rd_travel: int) -> str:
         try:
             self.front_travel = int(fr_travel)
         except ValueError:
@@ -148,7 +154,8 @@ class AppView(arcade.View):
         self.bike_sprite = None
         self.front_sag_text = None
         self.rear_sag_text = None
-
+        self.front_travel_text = None
+        self.rear_travel_text = None
         # SpriteList for our player
         self.fixed_spriteList = None
 
@@ -169,9 +176,16 @@ class AppView(arcade.View):
 
         self.fixed_spriteList = arcade.SpriteList()
         self.fixed_spriteList.append(self.bike_sprite)
-        self.background_color = arcade.csscolor.GREY
-        self.front_sag_text = arcade.Text(self.param.front.get_sag_text(), x=WINDOW_WIDTH - 200, y=5)
-        self.rear_sag_text = arcade.Text(self.param.rear.get_sag_text(), x=0, y=5)
+        self.background_color = WINDOW_BG
+        top_y = WINDOW_HEIGHT * 3 // 4
+        bottom_y = WINDOW_HEIGHT // 8
+        left_x = WINDOW_WIDTH // 4
+        right_x = WINDOW_WIDTH * 3 // 4
+        sag_font_size = 20
+        self.front_sag_text = arcade.Text(self.param.front.get_sag_text(), font_name=DEFAULT_FONT, align="center", anchor_x="center", font_size=sag_font_size, x=right_x, y=top_y)
+        self.rear_sag_text = arcade.Text(self.param.rear.get_sag_text(), font_name=DEFAULT_FONT, align="center", anchor_x="center", font_size=sag_font_size, x=left_x, y=top_y)
+        self.front_travel_text = arcade.Text(self.param.front.get_travel_text(), font_name=DEFAULT_FONT, align="center", anchor_x="center", x=right_x, y=bottom_y)
+        self.rear_travel_text = arcade.Text(self.param.rear.get_travel_text(), font_name=DEFAULT_FONT, align="center", anchor_x="center", x=left_x, y=bottom_y)
 
     def on_draw(self):
         """Render the screen."""
@@ -185,6 +199,8 @@ class AppView(arcade.View):
         self.fixed_spriteList.draw()
         self.front_sag_text.draw()
         self.rear_sag_text.draw()
+        self.front_travel_text.draw()
+        self.rear_travel_text.draw()
 
     def on_update(self, delta_time):
         YAPI.HandleEvents()
@@ -198,9 +214,9 @@ class AppView(arcade.View):
     def on_key_release(self, key, modifiers):
         """Called whenever a key is released."""
         if key == arcade.key.ESCAPE:
-            self.setup()
+            config_view = ConfigurationView(self.param)
+            self.window.show_view(config_view)
             return
-        pass
 
 
 def valueCallback(rf, value):
@@ -218,12 +234,14 @@ class ConfigurationView(arcade.View):
     def __init__(self, config: ApplicationConfig):
         super().__init__()
         self.config = config
+        self.background_color = WINDOW_BG
         self.manager = arcade.gui.UIManager()
-        widget_layout = arcade.gui.UIBoxLayout(align="center", font_name=DEFAULT_FONT, space_between=10)
+        widget_layout = arcade.gui.UIBoxLayout(align="TOP", font_name=DEFAULT_FONT, space_between=10)
+        title_label_space = arcade.gui.UISpace(height=30, color=arcade.color.GRAY)
 
         title_label = arcade.gui.UILabel(text="Yoctopuce SAG meter", align="center", font_size=32, multiline=False)
+        widget_layout.add(title_label_space)
         widget_layout.add(title_label)
-        title_label_space = arcade.gui.UISpace(height=30, color=arcade.color.GRAY)
         widget_layout.add(title_label_space)
         error = config.check_config()
         if error != '':
@@ -257,6 +275,8 @@ class ConfigurationView(arcade.View):
             self.grid.add(self.rd_drop, column=2, row=2)
 
             widget_layout.add(self.grid)
+            widget_layout.add(title_label_space)
+
             continue_button = arcade.gui.UIFlatButton(text="Continue", width=150)
 
             @continue_button.event("on_click")
@@ -277,7 +297,7 @@ class ConfigurationView(arcade.View):
             widget_layout.add(continue_button)
         # center main view
         self.anchor = self.manager.add(arcade.gui.UIAnchorLayout())
-        self.anchor.add(anchor_x="center_x", anchor_y="center_y", child=widget_layout)
+        self.anchor.add(anchor_x="center_x", anchor_y="top", child=widget_layout)
         # add version on the bottom right
         version_label = arcade.gui.UILabel(text="ylib : " + YAPI.GetAPIVersion(), align="center", font_size=12, multiline=False)
         self.anchor.add(anchor_x="right", anchor_y="bottom", child=version_label)
@@ -299,12 +319,17 @@ class ConfigurationView(arcade.View):
         # Draw the manager.
         self.manager.draw()
 
+    def on_key_release(self, key, modifiers):
+        """Called whenever a key is released."""
+        if key == arcade.key.ESCAPE:
+            arcade.exit()
+
 
 def main():
     config: ApplicationConfig = ApplicationConfig()
     config.setup()
 
-    window = arcade.Window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, resizable=True)
+    window = arcade.Window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
     main_view = ConfigurationView(config)
     window.show_view(main_view)
     arcade.run()
