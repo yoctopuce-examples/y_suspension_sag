@@ -110,7 +110,7 @@ class ApplicationConfig:
             return "No Yocto-RangeFinder detected on " + self.url
         return ""
 
-    def check_parameters(self, fr_hwid: Union[str | None], fr_travel: int, rd_hwid: Union[str | None], rd_travel: int) -> str:
+    def check_parameters(self, fr_hwid: Union[str, None], fr_travel: int, rd_hwid: Union[str, None], rd_travel: int) -> str:
         try:
             self.front_travel = int(fr_travel)
         except ValueError:
