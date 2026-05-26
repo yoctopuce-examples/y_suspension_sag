@@ -236,7 +236,7 @@ class ConfigurationView(arcade.View):
         widget_layout = arcade.gui.UIBoxLayout(align="TOP", font_name=DEFAULT_FONT, space_between=10)
         title_label_space = arcade.gui.UISpace(height=30, color=arcade.color.GRAY)
 
-        title_label = arcade.gui.UILabel(text="Yoctopuce SAG meter", align="center", font_size=32, multiline=False)
+        title_label = arcade.gui.UILabel(text="Yoctopuce SAG meter", align="center", font_size=48, multiline=False)
         widget_layout.add(title_label_space)
         widget_layout.add(title_label)
         widget_layout.add(title_label_space)
@@ -255,21 +255,21 @@ class ConfigurationView(arcade.View):
         else:
             self.grid = arcade.gui.UIGridLayout(column_count=3, row_count=3, horizontal_spacing=20, vertical_spacing=20)
             # first row
-            self.grid.add(arcade.gui.UILabel(text="Front", align="center", font_size=20, multiline=False), column=1, row=0)
-            self.grid.add(arcade.gui.UILabel(text="Rear", align="center", font_size=20, multiline=False), column=2, row=0)
+            self.grid.add(arcade.gui.UILabel(text="Front", align="center", font_size=20, multiline=False), column=2, row=0)
+            self.grid.add(arcade.gui.UILabel(text="Rear", align="center", font_size=20, multiline=False), column=1, row=0)
             # second row
-            self.grid.add(arcade.gui.UILabel(text="Travel", align="right", font_size=20, multiline=False), column=0, row=1)
+            self.grid.add(arcade.gui.UILabel(text="Travel (in mm):", align="right", font_size=20, multiline=False), column=0, row=1)
             self.fr_travel_input = UIInputText(width=400, height=40, border_color=arcade.uicolor.GRAY_CONCRETE, text="%d" % self.config.front_travel, font_name=DEFAULT_FONT, font_size=24, border_width=2)
-            self.grid.add(self.fr_travel_input, column=1, row=1)
+            self.grid.add(self.fr_travel_input, column=2, row=1)
             self.rd_travel_input = UIInputText(width=400, height=40, border_color=arcade.uicolor.GRAY_CONCRETE, text="%d" % self.config.rear_travel, font_name=DEFAULT_FONT, font_size=24, border_width=2)
-            self.grid.add(self.rd_travel_input, column=2, row=1)
+            self.grid.add(self.rd_travel_input, column=1, row=1)
             # third row
-            self.grid.add(arcade.gui.UILabel(text="Sensor", align="right", font_size=20, multiline=False), column=0, row=2)
+            self.grid.add(arcade.gui.UILabel(text="Sensor to use: ", align="right", font_size=20, multiline=False), column=0, row=2)
             avail = ["None"] + self.config.all_rf
             self.fr_drop = arcade.gui.UIDropdown(options=avail, default=self.config.front_selection, height=40, width=400)
-            self.grid.add(self.fr_drop, column=1, row=2)
+            self.grid.add(self.fr_drop, column=2, row=2)
             self.rd_drop = arcade.gui.UIDropdown(options=avail, default=self.config.rear_selection, height=40, width=400)
-            self.grid.add(self.rd_drop, column=2, row=2)
+            self.grid.add(self.rd_drop, column=1, row=2)
 
             widget_layout.add(self.grid)
             widget_layout.add(title_label_space)
@@ -296,7 +296,7 @@ class ConfigurationView(arcade.View):
         self.anchor = self.manager.add(arcade.gui.UIAnchorLayout())
         self.anchor.add(anchor_x="center_x", anchor_y="top", child=widget_layout)
         # add version on the bottom right
-        version_label = arcade.gui.UILabel(text="ylib : " + YAPI.GetAPIVersion(), align="center", font_size=12, multiline=False)
+        version_label = arcade.gui.UILabel(text="ylib : " + YAPI.GetAPIVersion(), align="center", font_size=15, multiline=False)
         self.anchor.add(anchor_x="right", anchor_y="bottom", child=version_label)
 
     def on_show_view(self):
