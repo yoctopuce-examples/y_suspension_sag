@@ -57,6 +57,11 @@ class SuspStatus:
         return "Travel = %dmm" % self.travel
 
 
+def valueCallback(rf, value):
+    """Called by Yoctopuce SDK each time a new range measurement arrives."""
+    p = rf.get_userData()
+    p.update_value(int(value))
+
 class ApplicationConfig:
     url: str
     error: str
@@ -83,16 +88,16 @@ class ApplicationConfig:
         self.front = SuspStatus(self.front_travel)
         self.rear = SuspStatus(self.rear_travel)
 
-    def setup(self) -> None:
+    def setup(self) -> str:
         errmsg = YRefParam()
         if YAPI.RegisterHub(self.url, errmsg) != YAPI.SUCCESS:
             print("Unable to register hub %s: %s" % (self.url, errmsg.value))
+            self.error = errmsg.value
             # if usb failed it's probably because a VirtualHub is running. Try to use the VirtualHub
             self.url = "127.0.0.1"
             if YAPI.RegisterHub(self.url, errmsg) != YAPI.SUCCESS:
                 print("Unable to register hub %s: %s" % (self.url, errmsg.value))
-                self.error = errmsg.value
-                return
+                return self.error
         rf: YRangeFinder = YRangeFinder.FirstRangeFinder()
         while rf is not None:
             self.all_rf.append(rf.get_hardwareId())
@@ -102,12 +107,9 @@ class ApplicationConfig:
             elif name == "rear":
                 self.rear_selection = rf.get_hardwareId()
             rf = rf.nextRangeFinder()
-
-    def check_config(self) -> str:
-        if self.error != "":
-            return self.error
         if len(self.all_rf) == 0:
-            return "No Yocto-RangeFinder detected on " + self.url
+            self.error = "No Yocto-RangeFinder detected on " + self.url
+            return self.error
         return ""
 
     def check_parameters(self, fr_hwid: Union[str, None], fr_travel: int, rd_hwid: Union[str, None], rd_travel: int) -> str:
@@ -219,11 +221,6 @@ class AppView(arcade.View):
             return
 
 
-def valueCallback(rf, value):
-    """Called by Yoctopuce SDK each time a new range measurement arrives."""
-    p = rf.get_userData()
-    p.update_value(int(value))
-
 
 class ConfigurationView(arcade.View):
     """ Configuration application class."""
@@ -243,7 +240,7 @@ class ConfigurationView(arcade.View):
         widget_layout.add(title_label_space)
         widget_layout.add(title_label)
         widget_layout.add(title_label_space)
-        error = config.check_config()
+        error = config.setup()
         if error != '':
             error_label = arcade.gui.UILabel(text="Error: " + error, align="center", font_size=15, multiline=False)
             widget_layout.add(error_label)
@@ -327,8 +324,6 @@ class ConfigurationView(arcade.View):
 
 def main():
     config: ApplicationConfig = ApplicationConfig()
-    config.setup()
-
     window = arcade.Window(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE)
     main_view = ConfigurationView(config)
     window.show_view(main_view)
