@@ -20,6 +20,8 @@ For the GUI version you will also need the [Python Arcade library](https://api.a
 
 ## Usage of the GUI version
 
+``python sag_meter_gui.py``
+
 ## Usage of the console version
 
 ````
